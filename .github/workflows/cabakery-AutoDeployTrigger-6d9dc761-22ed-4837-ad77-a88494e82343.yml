@@ -1,0 +1,60 @@
+name: Trigger auto deployment for cabakery
+
+# When this action will be executed
+on:
+  # Automatically trigger it when detected changes in repo
+  push:
+    branches: 
+      [ master ]
+    paths:
+    - '**'
+    - '.github/workflows/cabakery-AutoDeployTrigger-6d9dc761-22ed-4837-ad77-a88494e82343.yml'
+
+  # Allow mannually trigger 
+  workflow_dispatch:      
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout to the branch
+        uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Log in to container registry
+        uses: docker/login-action@v1
+        with:
+          registry: cabakery.azurecr.io
+          username: ${{ secrets.CABAKERY_REGISTRY_USERNAME }}
+          password: ${{ secrets.CABAKERY_REGISTRY_PASSWORD }}
+
+      - name: Build and push container image to registry
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          tags: cabakery.azurecr.io/cabakery:${{ github.sha }}
+          file: ./Dockerfile
+          context: ./
+
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.CABAKERY_AZURE_CREDENTIALS }}
+
+
+      - name: Deploy to containerapp
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az config set extension.use_dynamic_install=yes_without_prompt
+            az containerapp registry set -n cabakery -g InternProject --server cabakery.azurecr.io --username  ${{ secrets.CABAKERY_REGISTRY_USERNAME }} --password ${{ secrets.CABAKERY_REGISTRY_PASSWORD }}
+            az containerapp update -n cabakery -g InternProject --image cabakery.azurecr.io/cabakery:${{ github.sha }}
